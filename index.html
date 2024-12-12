@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF Viewer with Signature</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/signature_pad"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.4.0/jspdf.umd.min.js"></script>
+  <style>
+    #pdf-container {
+      position: relative;
+      width: 100%;
+      max-width: 800px;
+      margin: auto;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      overflow: hidden;
+      max-height: 80vh;
+      margin-top: 20px;
+      overflow-y: scroll; /* Habilitar desplazamiento */
+      -webkit-overflow-scrolling: touch; /* Para habilitar un desplazamiento suave en dispositivos táctiles */
+    }
+
+    #pdf-canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-bottom: 1px solid #ddd;
+    }
+
+    #signature-pad {
+      position: absolute;
+      top: 0;
+      left: 0;
+      border: none;
+      pointer-events: auto;
+      background-color: transparent;
+    }
+
+    .canvas-section {
+      margin-bottom: 20px;
+    }
+
+    .btn-section {
+      margin-top: 15px;
+      text-align: center;
+    }
+
+    .navigation-buttons {
+      text-align: center;
+      margin-top: 15px;
+    }
+
+    .nav-btn {
+      margin: 0 5px;
+    }
+
+    @media (max-width: 768px) {
+      #pdf-container {
+        max-width: 100%;
+      }
+      .btn-section {
+        margin-top: 10px;
+      }
+    }
+  </style>
+</head>
+<body class="bg-light">
+  <div class="container-fluid py-5">
+    <h1 class="text-center mb-4">PDF Viewer with Signature</h1>
+
+    <div class="mb-3">
+      <label for="file-input" class="form-label">Select a PDF File</label>
+      <input type="file" id="file-input" class="form-control" accept="application/pdf">
+    </div>
+
+    <div class="canvas-section">
+      <div id="pdf-container">
+        <canvas id="pdf-canvas"></canvas>
+        <canvas id="signature-pad"></canvas>
+      </div>
+    </div>
+
+    <div class="navigation-buttons">
+      <button id="scroll-up" class="btn btn-primary nav-btn">Up</button>
+      <button id="scroll-down" class="btn btn-primary nav-btn">Down</button>
+    </div>
+
+    <div class="btn-section">
+      <button id="clear-signature" class="btn btn-warning mb-2">Clear Signature</button>
+      <button id="save-pdf" class="btn btn-success">Save PDF</button>
+    </div>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('file-input');
+    const pdfCanvas = document.getElementById('pdf-canvas');
+    const signatureCanvas = document.getElementById('signature-pad');
+    const signaturePad = new SignaturePad(signatureCanvas);
+    const clearButton = document.getElementById('clear-signature');
+    const saveButton = document.getElementById('save-pdf');
+    const scrollUpButton = document.getElementById('scroll-up');
+    const scrollDownButton = document.getElementById('scroll-down');
+    let pdfDoc = null;
+    let scale = 1.5; // Default scale
+    let currentPage = 1; // Página actual
+
+    // Cargar el archivo PDF
+    fileInput.addEventListener('change', (event) => {
+      const file = event.target.files[0];
+      if (file && file.type === 'application/pdf') {
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          const pdfData = new Uint8Array(e.target.result);
+          const loadingTask = pdfjsLib.getDocument({ data: pdfData });
+
+          loadingTask.promise.then((doc) => {
+            pdfDoc = doc;
+            renderPage(currentPage); // Renderizar la primera página
+          }).catch((error) => {
+            console.error('Error loading PDF:', error);
+          });
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        alert('Please select a valid PDF file.');
+      }
+    });
+
+    // Renderizar una página del PDF
+    function renderPage(num) {
+      pdfDoc.getPage(num).then((page) => {
+        const viewport = page.getViewport({ scale });
+        pdfCanvas.width = viewport.width;
+        pdfCanvas.height = viewport.height;
+        signatureCanvas.width = viewport.width;
+        signatureCanvas.height = viewport.height;
+
+        const renderContext = {
+          canvasContext: pdfCanvas.getContext('2d'),
+          viewport: viewport,
+        };
+
+        page.render(renderContext).promise.then(() => {
+          console.log('Page rendered');
+        });
+      }).catch((error) => {
+        console.error('Error rendering page:', error);
+      });
+    }
+
+    // Navegar hacia arriba
+    scrollUpButton.addEventListener('click', () => {
+      const container = document.getElementById('pdf-container');
+      container.scrollBy(0, -200); // Desplazar hacia arriba 200px
+    });
+
+    // Navegar hacia abajo
+    scrollDownButton.addEventListener('click', () => {
+      const container = document.getElementById('pdf-container');
+      container.scrollBy(0, 200); // Desplazar hacia abajo 200px
+    });
+
+    // Limpiar la firma
+    clearButton.addEventListener('click', () => {
+      signaturePad.clear();
+    });
+
+    // Guardar el PDF con la firma
+    saveButton.addEventListener('click', () => {
+      if (signaturePad.isEmpty()) {
+        alert('Please add a signature before saving.');
+        return;
+      }
+
+      const pdfContext = pdfCanvas.getContext('2d');
+      const signatureDataURL = signatureCanvas.toDataURL('image/png');
+      const signatureImage = new Image();
+
+      signatureImage.onload = () => {
+        pdfContext.drawImage(signatureImage, 0, 0, pdfCanvas.width, pdfCanvas.height);
+
+        // Generar el PDF con jsPDF
+        const finalPdfCanvas = pdfCanvas.toDataURL('image/png');
+        const pdf = new jspdf.jsPDF();
+        pdf.addImage(finalPdfCanvas, 'PNG', 0, 0, 210, 297); // Escala a tamaño A4
+        pdf.save('signed-document.pdf');
+
+        // Limpiar el canvas de la firma
+        signaturePad.clear();
+
+        // Limpiar el canvas del PDF
+        const pdfCanvasContext = pdfCanvas.getContext('2d');
+        pdfCanvasContext.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+
+        // Resetear el input de archivo
+        fileInput.value = "";
+      };
+
+      signatureImage.src = signatureDataURL;
+    });
+  </script>
+</body>
+</html>
